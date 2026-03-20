@@ -82,8 +82,9 @@ export function validateLocation(data: Partial<Location>): Location | null {
     country: data.address.country,
   };
 
-  if (!address.city || !address.state) {
-    console.warn(`Invalid location ${data.id}: incomplete address`);
+  const hasCoordinates = isValidLatitude(data.latitude) && isValidLongitude(data.longitude);
+  if (!hasCoordinates && (!address.city || !address.state)) {
+    console.warn(`Invalid location ${data.id}: incomplete address and no valid coordinates`);
     return null;
   }
 
