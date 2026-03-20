@@ -9,8 +9,9 @@ import { Widget } from './components/Widget';
 import { createWidgetStore } from './stores/widgetStore';
 import { StoreProvider } from './contexts/StoreContext';
 import { createFieldRendererRegistry } from './renderers';
+import { createDataAdapter } from './adapters';
 import { parseURLConfig, embedOptionsToWidgetConfig } from './utils/urlConfig';
-import type { WidgetInitParams, WidgetConfig } from './types';
+import type { WidgetInitParams, WidgetConfig, Location } from './types';
 import './style.css';
 
 /**
@@ -46,6 +47,11 @@ function init(params: WidgetInitParams): void {
     autoDetectFieldTypes: params.config?.autoDetectFieldTypes ?? true,
   };
 
+  // Start data fetch immediately — before React mounts — so network request
+  // runs in parallel with React initialization and tile loading
+  const adapter = createDataAdapter(config.dataSource);
+  const dataPromise = adapter.fetchLocations();
+
   // Create widget store instance
   const store = createWidgetStore();
 
@@ -61,7 +67,7 @@ function init(params: WidgetInitParams): void {
   root.render(
     <React.StrictMode>
       <StoreProvider store={store}>
-        <Widget config={config} />
+        <Widget config={config} dataPromise={dataPromise} />
       </StoreProvider>
     </React.StrictMode>
   );

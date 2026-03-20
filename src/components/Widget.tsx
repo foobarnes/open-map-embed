@@ -5,17 +5,17 @@
 import React, { useEffect } from 'react';
 import { initializeTheme } from '../stores/widgetStore';
 import { useWidgetState, useStore } from '../contexts/StoreContext';
-import { createDataAdapter } from '../adapters';
-import type { WidgetConfig } from '../types';
+import type { WidgetConfig, Location } from '../types';
 import { MapView } from './MapView';
 import { TableView } from './TableView';
 import { Filters } from './Filters';
 
 interface WidgetProps {
   config: WidgetConfig;
+  dataPromise: Promise<Location[]>;
 }
 
-export const Widget: React.FC<WidgetProps> = ({ config }) => {
+export const Widget: React.FC<WidgetProps> = ({ config, dataPromise }) => {
   const store = useStore();
   const { setLocations, setLoading, setError, setTheme } = useWidgetState(
     (state) => ({
@@ -34,36 +34,30 @@ export const Widget: React.FC<WidgetProps> = ({ config }) => {
     }
   }, [config.theme, setTheme, store]);
 
-  // Fetch data on mount
+  // Consume the pre-started data promise
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
-      try {
-        const adapter = createDataAdapter(config.dataSource);
-        const locations = await adapter.fetchLocations();
-
+    dataPromise
+      .then((locations) => {
         if (locations.length === 0) {
           setError('No locations found in data source');
         } else {
           setLocations(locations);
-
-          // Extract and store category metadata
           const state = store.getState();
           state.setCategoriesFromLocations(locations, config.categoryConfig);
         }
-      } catch (err) {
+      })
+      .catch((err) => {
         console.error('Error fetching locations:', err);
         const message = err instanceof Error ? err.message : 'Failed to load locations';
         setError(message);
-      } finally {
+      })
+      .finally(() => {
         setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [config.dataSource, config.categoryConfig, setLocations, setLoading, setError, store]);
+      });
+  }, [dataPromise, config.categoryConfig, setLocations, setLoading, setError, store]);
 
   // Set initial config values
   useEffect(() => {
@@ -97,7 +91,8 @@ export const Widget: React.FC<WidgetProps> = ({ config }) => {
 };
 
 /**
- * Widget content with loading and error states
+ * Widget content — renders map immediately so tiles load in parallel with data fetch.
+ * Shows a loading overlay on top of the map while data is loading.
  */
 const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
   const { loading, error, currentView } = useWidgetState((state) => ({
@@ -106,10 +101,6 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
     currentView: state.currentView,
   }));
 
-  if (loading) {
-    return <LoadingState />;
-  }
-
   if (error) {
     return <ErrorState message={error} />;
   }
@@ -117,8 +108,8 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
   return (
     <div className="lmw-w-full lmw-h-full lmw-flex lmw-flex-col">
 
-      {/* Filters Section */}
-      <Filters />
+      {/* Filters Section — hidden while loading */}
+      {!loading && <Filters />}
 
       {/* Main Content Area */}
       <div
@@ -128,11 +119,14 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
         id={`${currentView}-panel`}
         aria-labelledby={`${currentView}-tab`}
       >
-        {currentView === 'map' ? (
-          <MapView
-            enableClustering={config.enableClustering}
-            showFullscreenButton={config.showFullscreenButton}
-          />
+        {currentView === 'map' || loading ? (
+          <>
+            <MapView
+              enableClustering={config.enableClustering}
+              showFullscreenButton={config.showFullscreenButton}
+            />
+            {loading && <MapLoadingOverlay />}
+          </>
         ) : (
           <TableView />
         )}
@@ -142,35 +136,17 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
 };
 
 /**
- * Loading state component with aesthetic animation
+ * Lightweight loading overlay shown on top of the map while data fetches
  */
-const LoadingState: React.FC = () => {
+const MapLoadingOverlay: React.FC = () => {
   return (
-    <div className="lmw-w-full lmw-h-full lmw-flex lmw-items-center lmw-justify-center lmw-bg-gradient-to-br lmw-from-gray-50 lmw-to-gray-100 dark:lmw-from-gray-900 dark:lmw-to-gray-800">
-      <div className="lmw-text-center lmw-px-6">
-        {/* Animated Map Pin Icon */}
-        <div className="lmw-relative lmw-mx-auto lmw-mb-8" style={{ width: '80px', height: '80px' }}>
-          {/* Pulsing circles */}
-          <div className="lmw-absolute lmw-inset-0 lmw-rounded-full lmw-bg-blue-400 dark:lmw-bg-blue-500 lmw-opacity-20 lmw-animate-ping"></div>
-          <div className="lmw-absolute lmw-inset-0 lmw-rounded-full lmw-bg-blue-400 dark:lmw-bg-blue-500 lmw-opacity-20 lmw-animate-pulse"></div>
-
-          {/* Map pin SVG */}
-          <div className="lmw-absolute lmw-inset-0 lmw-flex lmw-items-center lmw-justify-center">
-            <svg
-              className="lmw-w-12 lmw-h-12 lmw-text-blue-600 dark:lmw-text-blue-400 lmw-animate-bounce"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-              style={{ animationDuration: '1.5s' }}
-            >
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-            </svg>
-          </div>
-        </div>
-
-        {/* Subtle description */}
-        <p className="lmw-text-sm lmw-text-gray-500 dark:lmw-text-gray-400 lmw-max-w-xs lmw-mx-auto">
-          Fetching location data from your source...
-        </p>
+    <div className="lmw-absolute lmw-inset-0 lmw-z-[1000] lmw-flex lmw-items-center lmw-justify-center lmw-pointer-events-none">
+      <div className="lmw-bg-white/90 dark:lmw-bg-gray-800/90 lmw-rounded-lg lmw-px-5 lmw-py-3 lmw-shadow-lg lmw-flex lmw-items-center lmw-gap-3">
+        <svg className="lmw-animate-spin lmw-h-5 lmw-w-5 lmw-text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="lmw-opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="lmw-opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span className="lmw-text-sm lmw-text-gray-700 dark:lmw-text-gray-300">Loading locations...</span>
       </div>
     </div>
   );
